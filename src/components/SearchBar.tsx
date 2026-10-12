@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, MapPin, X, Loader2, Globe, Navigation } from 'lucide-react';
-import { searchCities } from '@/services/geoService';
+import { searchCities, getLiveUserLocation } from '@/services/geoService';
 import type { CitySearchResult } from '@/types';
 
 interface SearchBarProps {
@@ -86,65 +86,25 @@ export function SearchBar({ onSearch, autoFocus }: SearchBarProps) {
     }
   }
 
-  function handleCurrentLocation() {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
+  async function handleCurrentLocation() {
     setGeoLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        try {
-          // Reverse geocode via Nominatim
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const cityName =
-              data.address?.city ||
-              data.address?.town ||
-              data.address?.municipality ||
-              data.address?.village ||
-              data.name ||
-              'Current Location';
-            const country = data.address?.country || '';
-            const admin1 = data.address?.state || '';
-            const label = [cityName, admin1, country].filter(Boolean).join(', ');
-
-            const locResult: CitySearchResult = {
-              id: Date.now(),
-              name: cityName,
-              country,
-              admin1,
-              latitude,
-              longitude,
-              label,
-            };
-            handleSelect(locResult);
-          }
-        } catch {
-          // Fallback with coordinates
-          const locResult: CitySearchResult = {
-            id: Date.now(),
-            name: 'My Current Location',
-            country: '',
-            latitude,
-            longitude,
-            label: `Coordinates: ${latitude.toFixed(3)}, ${longitude.toFixed(3)}`,
-          };
-          handleSelect(locResult);
-        } finally {
-          setGeoLocating(false);
-        }
-      },
-      () => {
-        setGeoLocating(false);
-        alert('Could not retrieve your location. Please check browser permissions.');
-      },
-      { timeout: 10000 }
-    );
+    try {
+      const loc = await getLiveUserLocation();
+      const locResult: CitySearchResult = {
+        id: Date.now(),
+        name: loc.cityName,
+        country: loc.country,
+        admin1: loc.admin1,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        label: loc.label,
+      };
+      handleSelect(locResult);
+    } catch {
+      alert('Could not retrieve your location. Please check browser permissions.');
+    } finally {
+      setGeoLocating(false);
+    }
   }
 
   return (

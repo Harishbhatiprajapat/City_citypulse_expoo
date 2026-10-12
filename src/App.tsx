@@ -48,7 +48,7 @@ import { AboutPage } from '@/pages/AboutPage';
 import { fetchWeatherData, buildZonesFromWeather, buildReplayData } from '@/lib/weatherApi';
 import { fetchComprehensiveWeather, fetchAirQuality } from '@/services/weatherService';
 import { fetchCivicAlerts } from '@/services/alertService';
-import { searchNearbyPOIs } from '@/services/geoService';
+import { searchNearbyPOIs, getLiveUserLocation } from '@/services/geoService';
 import { supabase } from '@/lib/supabase';
 import type {
   Zone,
@@ -205,60 +205,34 @@ function AppContent() {
     }
   }, []);
 
-  const handleLocateMe = useCallback(() => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; accuracy?: number; label?: string } | null>(null);
+
+  const handleLocateMe = useCallback(async () => {
     setIsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`,
-            { headers: { 'User-Agent': 'CityPulse-Civic/2.0' } }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const cityName =
-              data.address?.city ||
-              data.address?.town ||
-              data.address?.municipality ||
-              data.address?.state_district ||
-              'Current Location';
-            const country = data.address?.country || '';
-            const admin1 = data.address?.state || '';
-            const label = [cityName, admin1, country].filter(Boolean).join(', ');
-            const newCity: CityInfo = {
-              name: cityName,
-              country,
-              admin1,
-              latitude,
-              longitude,
-              label,
-            };
-            setCurrentCity(newCity);
-            loadData(newCity);
-          }
-        } catch {
-          const newCity: CityInfo = {
-            name: 'My GPS Location',
-            country: '',
-            latitude,
-            longitude,
-            label: `GPS Coordinates: ${latitude.toFixed(3)}, ${longitude.toFixed(3)}`,
-          };
-          setCurrentCity(newCity);
-          loadData(newCity);
-        }
-      },
-      (err) => {
-        setIsLoading(false);
-        alert(`Location permission unavailable (${err.message}). You can select Jaipur or search any city.`);
-      },
-      { timeout: 10000, enableHighAccuracy: true }
-    );
+    try {
+      const loc = await getLiveUserLocation();
+      const newCity: CityInfo = {
+        name: loc.cityName,
+        country: loc.country,
+        admin1: loc.admin1,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        label: loc.label,
+      };
+      const coords = {
+        lat: loc.latitude,
+        lng: loc.longitude,
+        accuracy: loc.accuracy,
+        label: loc.label,
+      };
+      setUserLocation(coords);
+      setCurrentCity(newCity);
+      await loadData(newCity);
+    } catch (err) {
+      console.error('Locate me error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   }, [loadData]);
 
   useEffect(() => {
@@ -720,6 +694,8 @@ function AppContent() {
                     setActiveAlerts((prev) => [testAlert, ...prev]);
                   }}
                   onOpenAssistant={() => handleNavigate('ai')}
+                  userLocation={userLocation}
+                  onUserLocationDetected={setUserLocation}
                   heightClass="h-[480px] sm:h-[560px]"
                 />
 

@@ -20,6 +20,7 @@ import {
   geocodeLocation,
   POI_CATEGORIES,
   getCategoryMeta,
+  getLiveUserLocation,
 } from '@/services/geoService';
 import { calculateRoadRoute } from '@/services/routingService';
 import { savePlace, isPlaceSaved } from '@/services/savedPlacesService';
@@ -191,31 +192,23 @@ export function ExploreMap({
   };
 
   const handleAssistantGetCurrentLocation = async (): Promise<{ lat: number; lng: number } | null> => {
-    return new Promise((resolve) => {
-      if (!('geolocation' in navigator)) {
-        resolve(null);
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy,
-          };
-          setUserGpsCoords(coords);
-          setActiveCenter({
-            lat: coords.lat,
-            lng: coords.lng,
-            label: 'My GPS Location',
-          });
-          resolve({ lat: coords.lat, lng: coords.lng });
-        },
-        () => resolve(null),
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    });
+    try {
+      const loc = await getLiveUserLocation();
+      const coords = {
+        lat: loc.latitude,
+        lng: loc.longitude,
+        accuracy: loc.accuracy,
+      };
+      setUserGpsCoords(coords);
+      setActiveCenter({
+        lat: loc.latitude,
+        lng: loc.longitude,
+        label: loc.label || 'My Live Location',
+      });
+      return { lat: loc.latitude, lng: loc.longitude };
+    } catch {
+      return null;
+    }
   };
 
   const handleAssistantSelectMarker = (placeId: string) => {
@@ -276,6 +269,7 @@ export function ExploreMap({
             showMapRing={showMapRing}
             ringRadiusMeters={Math.round(radiusKm * 1000)}
             onPlanRouteTo={onPlanRouteTo}
+            userLocation={userGpsCoords ? { lat: userGpsCoords.lat, lng: userGpsCoords.lng, accuracy: userGpsCoords.accuracy } : null}
             onUserLocationDetected={(coords) => {
               setUserGpsCoords(coords);
               setActiveCenter({

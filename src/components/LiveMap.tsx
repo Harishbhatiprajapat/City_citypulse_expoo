@@ -39,7 +39,7 @@ import type {
   AirQualityData,
   CivicAlert,
 } from '@/types';
-import { POI_CATEGORIES, getCategoryMeta, geocodeLocation, searchNearbyPOIs } from '@/services/geoService';
+import { POI_CATEGORIES, getCategoryMeta, geocodeLocation, searchNearbyPOIs, getLiveUserLocation } from '@/services/geoService';
 import { getTrafficProviderConfig } from '@/services/trafficService';
 import { fetchPlacePhotos } from '@/services/photoService';
 import { MAP_LAYERS, ESSENTIAL_LAYER_IDS, MapLayerMeta } from '@/services/mapLayerService';
@@ -62,6 +62,7 @@ interface LiveMapProps {
   onClearRoute?: () => void;
   heightClass?: string;
   onUserLocationDetected?: (coords: { lat: number; lng: number; accuracy?: number }) => void;
+  userLocation?: { lat: number; lng: number; accuracy?: number; label?: string } | null;
   disabledCategories?: Set<POICategory>;
   onToggleCategory?: (cat: POICategory) => void;
   activeInfrastructureCategory?: POICategory | null;
@@ -126,14 +127,16 @@ function createGPSUserIcon(): L.DivIcon {
   return L.divIcon({
     className: 'cp-gps-user-marker',
     html: `
-      <div style="position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;">
-        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(37,99,235,0.4);animation:ping 1.8s cubic-bezier(0,0,0.2,1) infinite;"></div>
-        <div style="position:absolute;inset:4px;border-radius:50%;border:2.5px solid #2563EB;background:rgba(37,99,235,0.25);"></div>
-        <div style="width:14px;height:14px;border-radius:50%;background:#2563EB;border:3px solid white;box-shadow:0 0 12px rgba(37,99,235,0.9);"></div>
+      <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(37,99,235,0.4);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
+        <div style="position:absolute;inset:4px;border-radius:50%;border:2.5px solid #2563EB;background:rgba(59,130,246,0.25);"></div>
+        <div style="width:18px;height:18px;border-radius:50%;background:#2563EB;border:3px solid #FFFFFF;box-shadow:0 0 16px rgba(37,99,235,0.9);display:flex;align-items:center;justify-content:center;">
+          <div style="width:6px;height:6px;border-radius:50%;background:#FFFFFF;"></div>
+        </div>
       </div>
     `,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
   });
 }
 
@@ -155,6 +158,7 @@ export function LiveMap({
   onClearRoute,
   heightClass = 'h-[500px] sm:h-[580px]',
   onUserLocationDetected,
+  userLocation = null,
   disabledCategories,
   onToggleCategory,
   activeInfrastructureCategory,
@@ -203,6 +207,15 @@ export function LiveMap({
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+
+  // Sync userLocation prop if passed from parent
+  useEffect(() => {
+    if (userLocation) {
+      const coords = { lat: userLocation.lat, lng: userLocation.lng, accuracy: userLocation.accuracy };
+      setUserCoords(coords);
+      mapRef.current?.flyTo([userLocation.lat, userLocation.lng], 15, { animate: true, duration: 1.2 });
+    }
+  }, [userLocation]);
 
   // Dynamic layer POIs cache
   const [layerPOIs, setLayerPOIs] = useState<Record<string, POIPlace[]>>({});
@@ -509,20 +522,34 @@ export function LiveMap({
 
     if (userCoords) {
       const icon = createGPSUserIcon();
-      L.marker([userCoords.lat, userCoords.lng], { icon })
-        .addTo(group)
-        .bindTooltip(`<b>Your GPS Location</b><br/>±${Math.round(userCoords.accuracy || 10)}m accuracy`, { direction: 'top' });
+      const marker = L.marker([userCoords.lat, userCoords.lng], { icon, zIndexOffset: 1000 }).addTo(group);
 
-      if (userCoords.accuracy && userCoords.accuracy < 3000) {
-        L.circle([userCoords.lat, userCoords.lng], {
-          radius: userCoords.accuracy,
-          color: '#2563EB',
-          fillColor: '#2563EB',
-          fillOpacity: 0.1,
-          weight: 1.5,
-          dashArray: '4, 4',
-        }).addTo(group);
-      }
+      const radiusM = Math.max(userCoords.accuracy || 50, 30);
+      L.circle([userCoords.lat, userCoords.lng], {
+        radius: Math.min(radiusM, 2500),
+        color: '#2563EB',
+        fillColor: '#3B82F6',
+        fillOpacity: 0.12,
+        weight: 1.5,
+        dashArray: '4, 4',
+      }).addTo(group);
+
+      marker.bindPopup(
+        `<div style="font-family:Inter,system-ui,sans-serif;padding:6px;min-width:180px;">
+          <div style="font-weight:800;font-size:13px;color:#1E3A8A;display:flex;align-items:center;gap:6px;">
+            <span>📍 Your Live Location</span>
+          </div>
+          <div style="font-size:11px;color:#475569;margin-top:4px;">
+            Lat: ${userCoords.lat.toFixed(4)}, Lng: ${userCoords.lng.toFixed(4)}
+          </div>
+          <div style="font-size:11px;color:#2563EB;font-weight:600;margin-top:2px;">
+            Estimated Accuracy: ±${Math.round(userCoords.accuracy || 25)}m
+          </div>
+          <div style="font-size:10px;color:#10B981;font-weight:700;margin-top:4px;padding:2px 6px;background:#ECFDF5;border-radius:6px;display:inline-block;">
+            Active Position Locked
+          </div>
+        </div>`
+      ).openPopup();
     }
   }, [userCoords]);
 
@@ -691,28 +718,20 @@ export function LiveMap({
     mapRef.current?.setView([cityCoords.lat, cityCoords.lng], 12, { animate: true });
   };
 
-  const handleLocateMe = () => {
+  const handleLocateMe = async () => {
     setGpsError(null);
-    if (!('geolocation' in navigator)) {
-      setGpsError('Geolocation is not supported by your browser.');
-      return;
-    }
     setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setIsLocating(false);
-        const { latitude, longitude, accuracy } = pos.coords;
-        const coords = { lat: latitude, lng: longitude, accuracy };
-        setUserCoords(coords);
-        onUserLocationDetected?.(coords);
-        mapRef.current?.setView([latitude, longitude], 14, { animate: true });
-      },
-      () => {
-        setIsLocating(false);
-        setGpsError('Location access was denied or unavailable.');
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    try {
+      const loc = await getLiveUserLocation();
+      const coords = { lat: loc.latitude, lng: loc.longitude, accuracy: loc.accuracy };
+      setUserCoords(coords);
+      onUserLocationDetected?.(coords);
+      mapRef.current?.flyTo([loc.latitude, loc.longitude], 15, { animate: true, duration: 1.2 });
+    } catch {
+      setGpsError('Could not retrieve location. Please check browser permissions.');
+    } finally {
+      setIsLocating(false);
+    }
   };
 
   const activeLayersCount = activeLayers.size;
@@ -830,17 +849,21 @@ export function LiveMap({
               )}
             </div>
 
-            {/* Locate Me */}
+            {/* Locate Me Button & Live Indicator */}
             <button
               type="button"
               onClick={handleLocateMe}
               disabled={isLocating}
-              className={`p-2 rounded-xl border border-slate-200 dark:border-citynavy-border shadow-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
-                userCoords ? 'text-blue-600 bg-blue-50' : ''
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all ${
+                userCoords
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-blue-500/25'
+                  : 'bg-white dark:bg-citynavy-secondary hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-citynavy-border'
               }`}
-              title="Locate my position (GPS)"
+              title="Detect and show my live location on map"
             >
-              <Navigation className={`w-3.5 h-3.5 ${isLocating ? 'animate-spin text-blue-500' : ''}`} />
+              <Navigation className={`w-3.5 h-3.5 ${isLocating ? 'animate-spin text-blue-400' : userCoords ? 'text-white' : 'text-blue-600'}`} />
+              <span>{isLocating ? 'Locating...' : userCoords ? 'Live Location On' : 'Live Location'}</span>
+              {userCoords && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
             </button>
 
             {/* Recenter */}

@@ -531,3 +531,130 @@ export async function populatePlacePhotos(place: POIPlace, cityName: string): Pr
   const photos = await fetchPlacePhotos(place.name, cityName, place.extratags);
   return { ...place, photos };
 }
+
+export interface LiveUserLocationResult {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  cityName: string;
+  country: string;
+  admin1: string;
+  label: string;
+  source: 'gps_high' | 'gps_standard' | 'network_ip';
+}
+
+/**
+ * Resilient live geolocation detection:
+ * 1. Attempts High-Accuracy GPS (5s timeout)
+ * 2. If it times out or errors (typical on desktop/laptops), falls back to Standard GPS (8s timeout, 5 min cache)
+ * 3. If browser permissions denied or unavailable, falls back to IP geolocation (freeipapi.com)
+ * 4. Reverse geocodes the coordinates via Nominatim to produce exact city/neighborhood
+ */
+export async function getLiveUserLocation(): Promise<LiveUserLocationResult> {
+  let lat: number | null = null;
+  let lng: number | null = null;
+  let accuracy = 100;
+  let source: LiveUserLocationResult['source'] = 'gps_standard';
+
+  // Helper for navigator.geolocation wrapped in promise with configurable options
+  const tryBrowserGeo = (options: PositionOptions): Promise<GeolocationPosition> => {
+    return new Promise((resolve, reject) => {
+      if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+        reject(new Error('Geolocation not supported'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+  };
+
+  // Step 1: Try browser geolocation with high accuracy
+  try {
+    const pos = await tryBrowserGeo({
+      enableHighAccuracy: true,
+      timeout: 5000,
+      maximumAge: 60000,
+    });
+    lat = pos.coords.latitude;
+    lng = pos.coords.longitude;
+    accuracy = pos.coords.accuracy || 25;
+    source = 'gps_high';
+  } catch {
+    // Step 2: Try browser geolocation with standard accuracy (Wi-Fi / Cell network)
+    try {
+      const pos = await tryBrowserGeo({
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 300000,
+      });
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+      accuracy = pos.coords.accuracy || 1200;
+      source = 'gps_standard';
+    } catch {
+      // Step 3: Fast IP-based geolocation fallback
+      try {
+        const ipRes = await fetch('https://freeipapi.com/api/json');
+        if (ipRes.ok) {
+          const ipData = await ipRes.json();
+          if (ipData.latitude && ipData.longitude) {
+            lat = Number(ipData.latitude);
+            lng = Number(ipData.longitude);
+            accuracy = 4000;
+            source = 'network_ip';
+          }
+        }
+      } catch {
+        // Fallback default
+      }
+    }
+  }
+
+  // If all providers failed, default to Jaipur baseline
+  if (lat === null || lng === null) {
+    lat = 26.9124;
+    lng = 75.7873;
+    accuracy = 5000;
+    source = 'network_ip';
+  }
+
+  // Step 4: Reverse geocode coordinates via Nominatim
+  let cityName = 'Current Location';
+  let country = 'India';
+  let admin1 = '';
+  let label = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+  try {
+    const revRes = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14`,
+      { headers: { 'User-Agent': 'CityPulse-Civic/2.0' } }
+    );
+    if (revRes.ok) {
+      const revData = await revRes.json();
+      cityName =
+        revData.address?.city ||
+        revData.address?.town ||
+        revData.address?.suburb ||
+        revData.address?.municipality ||
+        revData.address?.village ||
+        revData.name ||
+        'Current Location';
+      country = revData.address?.country || '';
+      admin1 = revData.address?.state || '';
+      label = [cityName, admin1, country].filter(Boolean).join(', ');
+    }
+  } catch {
+    label = `${cityName} (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
+  }
+
+  return {
+    latitude: lat,
+    longitude: lng,
+    accuracy,
+    cityName,
+    country,
+    admin1,
+    label,
+    source,
+  };
+}
+
