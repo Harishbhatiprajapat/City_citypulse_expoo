@@ -1,0 +1,7 @@
+[functions.city-search]
+verify_jwt = false
+entrypoint = "./functions/city-search/index.ts"
+
+[functions.weather-data]
+verify_jwt = false
+entrypoint = "./functions/weather-data/index.ts"
