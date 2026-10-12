@@ -536,14 +536,34 @@ export function RoutePlanner({
                       )}
                     </div>
 
-                    <div className="mt-2 flex items-baseline gap-2">
+                    <div className="mt-2 flex items-baseline gap-2 flex-wrap">
                       <span className="text-2xl font-black text-slate-900 dark:text-citynavy-text">
                         {durMins} mins
                       </span>
                       <span className="text-xs text-slate-500">
                         ({distKm} km)
                       </span>
+                      {alt.trafficDelaySeconds > 0 && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                          +{Math.round(alt.trafficDelaySeconds / 60)}m delay
+                        </span>
+                      )}
                     </div>
+
+                    {/* Route Obstruction Badges */}
+                    {alt.incidentMatches && alt.incidentMatches.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {alt.incidentMatches.some((m) => m.incident.roadClosed && m.isDirectImpact) ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 flex items-center gap-1">
+                            ⛔ Road Closure on Route
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                            ⚠️ {alt.incidentMatches.filter((m) => m.isDirectImpact).length || alt.incidentMatches.length} Hazard(s) Nearby
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     <p className="text-[11px] text-slate-500 dark:text-citynavy-muted mt-1">
                       Departure: {new Date(alt.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} &rarr; Arrives: <strong>{alt.estimatedArrivalTime}</strong>
@@ -584,6 +604,7 @@ export function RoutePlanner({
             multiRoute={multiRoute}
             selectedRouteId={selectedRouteId}
             onSelectRouteAlternative={setSelectedRouteId}
+            trafficIncidents={selectedAlternative?.incidentsAlongRoute || []}
             onClearRoute={handleClear}
             tomtomKey={tomtomKey}
             heightClass="h-[520px] sm:h-[620px]"
@@ -617,6 +638,51 @@ export function RoutePlanner({
               </p>
             )}
           </div>
+
+          {/* Spatial Route Incident Alerts */}
+          {selectedAlternative?.incidentMatches && selectedAlternative.incidentMatches.length > 0 && (
+            <div className="my-3 p-3 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 space-y-1.5 flex-shrink-0">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
+                <span className="flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600" />
+                  <span>Route Disruption Alerts ({selectedAlternative.incidentMatches.length})</span>
+                </span>
+                <span className="text-[10px] font-normal text-amber-700 dark:text-amber-300">
+                  Buffer &le; 1.2km
+                </span>
+              </div>
+              <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                {selectedAlternative.incidentMatches.map((m, mIdx) => (
+                  <div
+                    key={`m_${mIdx}`}
+                    className={`p-2 rounded-xl text-xs flex items-start justify-between gap-2 border ${
+                      m.incident.roadClosed
+                        ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-900/60 text-rose-900 dark:text-rose-200'
+                        : 'bg-white dark:bg-citynavy-card border-amber-100 dark:border-amber-900/40 text-slate-800 dark:text-slate-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-1 font-bold text-[11px]">
+                        <span>{m.incident.roadClosed ? '⛔' : '⚠️'}</span>
+                        <span>{m.incident.type}</span>
+                        <span className="text-[9px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                          {m.isDirectImpact ? 'Direct Path' : `${m.distanceToRouteMeters}m off`}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400 mt-0.5 leading-tight">
+                        {m.impactSummary}
+                      </p>
+                    </div>
+                    {m.incident.delaySeconds > 0 && (
+                      <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 flex-shrink-0">
+                        +{Math.round(m.incident.delaySeconds / 60)}m
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Navigation Steps */}
           <div className="flex-1 overflow-y-auto space-y-2.5 mt-3 pr-1">

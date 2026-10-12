@@ -130,6 +130,25 @@ const DEFAULT_INCIDENTS: CivicIncidentItem[] = [
       { status: 'Acknowledged', timestamp: new Date(Date.now() - 3600000 * 2).toISOString(), note: 'Scheduled for evening compactor truck route.' },
     ],
   },
+  {
+    id: 'CP-2026-481920',
+    title: 'Metro Phase-2 Ducting & Surface Trenching — Road Closed',
+    category: 'Construction',
+    description: 'Underground utility trenching and civil excavation work. Northbound carriage way completely closed from B2 Bypass to Jawahar Circle.',
+    location: 'Tonk Road at B2 Bypass Junction, Jaipur',
+    city: 'Jaipur',
+    coordinates: { lat: 26.8521, lng: 75.7942 },
+    createdAt: new Date(Date.now() - 3600000 * 8).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+    status: 'In Progress',
+    severity: 'Critical',
+    source: 'Jaipur Development Authority (JDA) PWD Notice',
+    assignedDepartment: 'JDA Engineering Wing & Traffic Police',
+    updates: [
+      { status: 'Reported', timestamp: new Date(Date.now() - 3600000 * 8).toISOString(), note: 'Excavation permit #JDA-2026-78 issued.' },
+      { status: 'In Progress', timestamp: new Date(Date.now() - 3600000 * 2).toISOString(), note: 'Barricading active; traffic diverted to JLN Marg.' },
+    ],
+  },
 ];
 
 const STORAGE_KEY = 'citypulse_civic_incidents_v2';

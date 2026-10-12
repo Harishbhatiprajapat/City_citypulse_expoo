@@ -271,6 +271,43 @@ export interface TrafficIncident {
   roadName?: string;
 }
 
+export interface TrafficCorridorInfo {
+  id: string;
+  name: string;
+  from: string;
+  to: string;
+  lengthKm: number;
+  currentSpeedKmH: number;
+  freeFlowSpeedKmH: number;
+  delayMins: number;
+  congestionLevel: 'Low' | 'Moderate' | 'Heavy' | 'Severe';
+  statusColor: string;
+  coords: [number, number][];
+}
+
+export interface CityTrafficOverview {
+  city: CityInfo;
+  congestionIndex: number; // 0 - 100
+  congestionLevel: 'Low' | 'Moderate' | 'Heavy' | 'Severe';
+  averageSpeedKmH: number;
+  freeFlowSpeedKmH: number;
+  travelTimeDelayMins: number;
+  corridors: TrafficCorridorInfo[];
+  incidents: TrafficIncident[];
+  provider: 'TomTom' | 'CityPulse Civic Baseline';
+  hasLiveProbe: boolean;
+  lastUpdated: string;
+  coverage: string;
+  notice?: string;
+}
+
+export interface RouteIncidentMatch {
+  incident: TrafficIncident;
+  distanceToRouteMeters: number;
+  isDirectImpact: boolean; // within 350m of route polyline
+  impactSummary: string;
+}
+
 export interface SavedPlace {
   id: string;
   name: string;
@@ -406,6 +443,7 @@ export interface RouteAlternative {
   tollEstimateCurrency?: string;
   tollEstimateAmount?: number;
   incidentsAlongRoute: TrafficIncident[];
+  incidentMatches?: RouteIncidentMatch[];
   trafficDataSource: string;
   isRecommended: boolean;
 }

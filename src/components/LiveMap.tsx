@@ -513,6 +513,102 @@ export function LiveMap({
     });
   }, [activeLayers, zones, liveAqi, activeAlerts, cityCoords, layerPOIs, onSelectPOI]);
 
+  // Traffic Flow Raster Tile Layer (TomTom Flow Tile API relative0)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (activeLayers.has('traffic') && tomtomKey && tomtomKey.trim() !== '') {
+      if (!trafficTileLayerRef.current) {
+        const trafficLayer = L.tileLayer(
+          `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${tomtomKey}`,
+          {
+            attribution: '&copy; <a href="https://www.tomtom.com" target="_blank" rel="noopener noreferrer">TomTom</a> Live Traffic Flow',
+            opacity: 0.85,
+            maxZoom: 18,
+          }
+        );
+        trafficLayer.addTo(map);
+        trafficTileLayerRef.current = trafficLayer;
+      }
+    } else {
+      if (trafficTileLayerRef.current) {
+        map.removeLayer(trafficTileLayerRef.current);
+        trafficTileLayerRef.current = null;
+      }
+    }
+  }, [activeLayers, tomtomKey]);
+
+  // Render Traffic Incidents & Road Disruptions on Map
+  useEffect(() => {
+    const group = incidentsLayerGroupRef.current;
+    if (!group) return;
+
+    group.clearLayers();
+
+    // Show when traffic layer is active OR whenever journey route incidents are present
+    const shouldDisplay = activeLayers.has('traffic') || (multiRoute && trafficIncidents.length > 0);
+    if (!shouldDisplay || !trafficIncidents || trafficIncidents.length === 0) return;
+
+    trafficIncidents.forEach((inc) => {
+      const isClosed = inc.roadClosed;
+      const isAccident = inc.type.toLowerCase().includes('accident') || inc.type.toLowerCase().includes('crash');
+      const isRoadwork = inc.type.toLowerCase().includes('roadwork') || inc.type.toLowerCase().includes('construction') || inc.type.toLowerCase().includes('pothole');
+      
+      const glyph = isClosed ? '⛔' : isAccident ? '💥' : isRoadwork ? '🚧' : '⚠️';
+      const bgColor = isClosed ? '#DC2626' : isAccident ? '#EA580C' : isRoadwork ? '#D97706' : '#EAB308';
+      const severityColor = inc.severity === 'severe' ? '#DC2626' : inc.severity === 'major' ? '#EA580C' : inc.severity === 'moderate' ? '#D97706' : '#10B981';
+
+      const customIcon = L.divIcon({
+        className: 'cp-traffic-incident-marker',
+        html: `
+          <div style="position:relative;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+            ${isClosed ? '<div style="position:absolute;inset:-4px;border-radius:50%;border:2.5px solid #DC2626;animation:ping 1.6s cubic-bezier(0,0,0.2,1) infinite;"></div>' : ''}
+            <div style="width:30px;height:30px;border-radius:50%;background:${bgColor};border:2px solid #FFFFFF;box-shadow:0 3px 10px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">
+              ${glyph}
+            </div>
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+
+      const delayText = inc.delaySeconds > 0 ? `+${Math.round(inc.delaySeconds / 60)} min delay` : 'Delay variable';
+
+      const marker = L.marker([inc.latitude, inc.longitude], { icon: customIcon })
+        .addTo(group)
+        .bindPopup(
+          `<div style="font-family:Inter,system-ui,sans-serif;padding:8px;min-width:220px;max-width:280px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:10px;font-weight:800;letter-spacing:0.5px;padding:2px 7px;border-radius:999px;background:${isClosed ? '#FEE2E2' : '#FEF3C7'};color:${isClosed ? '#991B1B' : '#92400E'};">
+                ${isClosed ? '⛔ ROAD CLOSED' : glyph + ' ' + inc.type.toUpperCase()}
+              </span>
+              <span style="font-size:10px;font-weight:700;color:${severityColor};">
+                ${inc.severity.toUpperCase()}
+              </span>
+            </div>
+            <div style="font-weight:700;font-size:13px;color:#0F172A;line-height:1.3;margin-bottom:4px;">
+              ${inc.description}
+            </div>
+            ${inc.roadName ? `<div style="font-size:11px;color:#475569;margin-bottom:4px;"><b>Corridor:</b> ${inc.roadName}</div>` : ''}
+            <div style="font-size:11px;color:#B45309;font-weight:600;margin-bottom:4px;">
+              ⏱️ ${delayText}
+            </div>
+            <div style="font-size:10px;color:#64748B;border-top:1px solid #E2E8F0;padding-top:4px;margin-top:6px;display:flex;justify-content:space-between;">
+              <span>Updated: ${new Date(inc.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>${tomtomKey ? 'TomTom' : 'Municipal'}</span>
+            </div>
+          </div>`,
+          { className: 'cp-incident-popup' }
+        );
+
+      marker.bindTooltip(
+        `<b>${glyph} ${inc.roadClosed ? 'ROAD CLOSED' : inc.type}</b><br/>${inc.description.slice(0, 45)}...`,
+        { direction: 'top', className: 'cp-tooltip' }
+      );
+    });
+  }, [activeLayers, trafficIncidents, multiRoute, tomtomKey]);
+
   // Render GPS Position Marker
   useEffect(() => {
     const group = gpsLayerGroupRef.current;
@@ -1053,6 +1149,35 @@ export function LiveMap({
             <span>Alert (&gt;65)</span>
           </span>
         </div>
+
+        {/* Floating Traffic Flow Legend when traffic layer is active */}
+        {activeLayers.has('traffic') && (
+          <div className="absolute top-4 right-4 z-[400] bg-white/95 dark:bg-citynavy-card/95 backdrop-blur-md border border-slate-200 dark:border-citynavy-border rounded-xl px-3 py-2 shadow-lg flex flex-wrap items-center gap-3 text-xs font-medium text-slate-700 dark:text-slate-300 animate-in fade-in">
+            <span className="font-bold text-[11px] text-slate-600 dark:text-slate-300 uppercase flex items-center gap-1.5">
+              <Car className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>Traffic Flow:</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm" />
+              <span>Free Flow</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm" />
+              <span>Moderate</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm" />
+              <span>Congested</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-700 shadow-sm animate-pulse" />
+              <span>Road Closed</span>
+            </span>
+            <span className="text-[10px] text-slate-400 border-l pl-2 border-slate-300 dark:border-slate-700">
+              {tomtomKey ? 'TomTom Live Flow' : 'Municipal Disruptions'}
+            </span>
+          </div>
+        )}
 
         {/* Bottom-Left: Simulate Alert Button (Reference Image 2) */}
         <button

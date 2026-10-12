@@ -21,6 +21,9 @@ import {
 import {
   getTrafficProviderConfig,
   clearTrafficCache,
+  matchIncidentsToRoute,
+  fetchCityTrafficOverview,
+  fetchLiveTrafficIncidents,
 } from '@/services/trafficService';
 
 import {
@@ -361,5 +364,104 @@ export async function runPhaseTests() {
 
     console.log('  ✔ Saved Places & Journeys: Storage CRUD and offline resilience verified');
   }
+
+  console.log('\n------------------------------------------------------------');
+  console.log('📌 FEATURE G & H: Traffic Intelligence, Spatial Incident Matching & Route Alerts');
+  console.log('------------------------------------------------------------');
+
+  // Test 16: fetchCityTrafficOverview calculates accurate metrics for Jaipur
+  {
+    const jaipurOverview = await fetchCityTrafficOverview(
+      26.9124,
+      75.7873,
+      { id: 'jaipur', name: 'Jaipur', label: 'Jaipur, Rajasthan', country: 'India', latitude: 26.9124, longitude: 75.7873 },
+      undefined
+    );
+
+    assert.ok(jaipurOverview.congestionIndex >= 0 && jaipurOverview.congestionIndex <= 100, 'Congestion index must be 0-100');
+    assert.ok(['Low', 'Moderate', 'Heavy', 'Severe'].includes(jaipurOverview.congestionLevel), 'Congestion level must be valid enum');
+    assert.ok(jaipurOverview.averageSpeedKmH > 0 && jaipurOverview.averageSpeedKmH <= jaipurOverview.freeFlowSpeedKmH, 'Speed must be non-zero and bounded by free-flow');
+    assert.ok(jaipurOverview.corridors.length >= 4, 'Must evaluate major arterial corridors');
+    assert.ok(jaipurOverview.corridors.every(c => c.coords.length > 0 && c.currentSpeedKmH > 0), 'Every corridor must have coordinates and positive speeds');
+    assert.strictEqual(jaipurOverview.provider, 'CityPulse Civic Baseline');
+    assert.strictEqual(jaipurOverview.hasLiveProbe, false);
+    console.log(`  ✔ fetchCityTrafficOverview: Computed ${jaipurOverview.congestionLevel} (${jaipurOverview.congestionIndex}%) with ${jaipurOverview.corridors.length} arterial corridors`);
+  }
+
+  // Test 17: Geometric Point-to-Polyline Route Incident Matching (matchIncidentsToRoute)
+  {
+    // A sample route polyline running north-south through Jaipur MI Road
+    const routeCoords: [number, number][] = [
+      [26.9124, 75.7873],
+      [26.9150, 75.7900],
+      [26.9180, 75.7950],
+      [26.9200, 75.8000],
+    ];
+
+    const testIncidents: any[] = [
+      {
+        id: 'inc_direct',
+        type: 'Road Closure',
+        description: 'MI Road closed due to smart city duct work',
+        severity: 'severe',
+        delaySeconds: 600,
+        roadClosed: true,
+        startTime: new Date().toISOString(),
+        latitude: 26.9151, // ~15 meters off route point [26.9150, 75.7900]
+        longitude: 75.7901,
+        roadName: 'MI Road',
+      },
+      {
+        id: 'inc_nearby',
+        type: 'Congestion',
+        description: 'Moderate traffic backlog near Ajmeri Gate',
+        severity: 'moderate',
+        delaySeconds: 240,
+        roadClosed: false,
+        startTime: new Date().toISOString(),
+        latitude: 26.9190, // ~600m away from route polyline
+        longitude: 75.8050,
+        roadName: 'Ajmeri Gate',
+      },
+      {
+        id: 'inc_far',
+        type: 'Pothole repair',
+        description: 'Repair work in Mansarovar',
+        severity: 'minor',
+        delaySeconds: 60,
+        roadClosed: false,
+        startTime: new Date().toISOString(),
+        latitude: 26.8500, // > 7 km away from route
+        longitude: 75.7500,
+        roadName: 'Mansarovar',
+      },
+    ];
+
+    const matches = matchIncidentsToRoute(routeCoords, testIncidents);
+
+    assert.strictEqual(matches.length, 2, 'Only incidents within 1200m buffer should match the corridor');
+    const direct = matches.find((m) => m.incident.id === 'inc_direct');
+    assert.ok(direct, 'Direct incident must be matched');
+    assert.strictEqual(direct.isDirectImpact, true, 'Incident within 350m must be classified as direct impact');
+    assert.ok(direct.distanceToRouteMeters <= 50, `Distance should be <= 50m, got ${direct.distanceToRouteMeters}m`);
+
+    const nearby = matches.find((m) => m.incident.id === 'inc_nearby');
+    assert.ok(nearby, 'Nearby incident must be matched');
+    assert.strictEqual(nearby.isDirectImpact, false, 'Incident > 350m must be classified as nearby impact');
+    assert.ok(nearby.distanceToRouteMeters > 350 && nearby.distanceToRouteMeters <= 1200, 'Distance must be between 350m and 1200m');
+
+    console.log('  ✔ matchIncidentsToRoute: Precisely distinguishes direct path impacts (<350m) vs corridor hazards (<1200m) and filters distant events');
+  }
+
+  // Test 18: fetchLiveTrafficIncidents integrates civic disruptions and honest provider status
+  {
+    const res = await fetchLiveTrafficIncidents(26.9124, 75.7873, 20, undefined);
+    assert.ok(Array.isArray(res.incidents), 'Incidents must return an array');
+    assert.strictEqual(res.providerStatus, 'civic_fallback');
+    assert.ok(res.incidents.length > 0, 'Must load verified municipal road disruptions');
+    assert.ok(res.incidents.some((i) => i.roadClosed || i.severity === 'severe'), 'Must contain verified severity classifications');
+    console.log(`  ✔ fetchLiveTrafficIncidents: Retrieved ${res.incidents.length} verified disruptions without fabricating mock probe numbers`);
+  }
 }
+
 

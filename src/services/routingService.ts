@@ -9,7 +9,7 @@ import type {
   RouteWeatherCheckpoint,
   TrafficIncident,
 } from '@/types';
-import { fetchLiveTrafficIncidents } from './trafficService';
+import { fetchLiveTrafficIncidents, matchIncidentsToRoute } from './trafficService';
 import { getWeatherLabel } from './weatherService';
 
 /**
@@ -198,14 +198,13 @@ export async function calculateMultiRouteJourney(params: {
     if (travelMode === 'walking') adjustedDurationSec = Math.round((distMeters / 1000 / 4.8) * 3600);
     if (travelMode === 'cycling') adjustedDurationSec = Math.round((distMeters / 1000 / 15) * 3600);
 
-    // Check incidents that lie within 500m of this route's polyline
-    const routeIncidents = trafficResult.incidents.filter((inc) => {
-      return leafletCoords.some(
-        ([cLat, cLng]) => Math.abs(cLat - inc.latitude) < 0.01 && Math.abs(cLng - inc.longitude) < 0.01
-      );
-    });
+    // Precise geometric point-to-polyline incident matching (direct <= 350m vs corridor <= 1200m)
+    const matches = matchIncidentsToRoute(leafletCoords, trafficResult.incidents);
+    const directMatches = matches.filter((m) => m.isDirectImpact);
+    const routeIncidents = matches.map((m) => m.incident);
 
-    const trafficDelaySec = routeIncidents.reduce((sum, inc) => sum + (inc.delaySeconds || 0), 0);
+    // Accumulate real traffic delay from direct obstructions
+    const trafficDelaySec = directMatches.reduce((sum, m) => sum + (m.incident.delaySeconds || 0), 0);
     const totalDurationSec = adjustedDurationSec + trafficDelaySec;
 
     // Calculate arrival time
@@ -290,6 +289,7 @@ export async function calculateMultiRouteJourney(params: {
       tollEstimateCurrency: tollAmount > 0 ? 'INR (₹)' : undefined,
       tollEstimateAmount: tollAmount > 0 ? tollAmount : undefined,
       incidentsAlongRoute: routeIncidents,
+      incidentMatches: matches,
       trafficDataSource: tomtomKey
         ? 'TomTom Road Probe Telemetry & Incident Sensor'
         : 'OSRM Standard Free-Flow Speed Model (TomTom API key not configured)',
